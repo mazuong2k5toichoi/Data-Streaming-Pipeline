@@ -1,12 +1,15 @@
 from datetime import datetime, timedelta
 from airflow import DAG
 import uuid
-# from airflow.operators.python_operator import PythonOperator
+from airflow.operators.python_operator import PythonOperator
 import requests
 import json
+from kafka import KafkaProducer
+import time
+import logging
 default_args = {
     'owner': 'Haiden',
-    'start_date': datetime(2025, 10, 16, 17, 0),
+    'start_date': datetime(2023, 10, 15, 17, 0),
 }
 def get_data():
 
@@ -34,28 +37,27 @@ def format_data(res):
     return data
 
 def stream_data():
-    res= get_data()
-    res= format_data(res)
-    print(json.dumps(res, indent=3))
-    return res
 
 
-stream_data()
+    curr_time = time.time()
+    producer = KafkaProducer(bootstrap_servers = ['broker:29092'], max_block_ms=5000)
 
+    while True:
+        if time.time() > curr_time + 60:
+            break
+        try:
+            res = get_data()
+            res = format_data(res)
 
+            producer.send('users_created', json.dumps(res).encode('utf-8'))
+            logging.info(f"Data sent: {res}")
 
+        except Exception as e:
+            logging.error(f"An error occured: {e}")
+            continue
 
-
-
-
-
-
-
-
-
-
-# with DAG('kafka_streaming_pipeline', default_args=default_args, schedule_interval='@daily', catchup=False) as dag: 
-#     streaming_task = PythonOperator(
-#         task_id='stream_data_from_api',
-#         python_callable= stream_data 
-#         )
+with DAG('kafka_streaming_pipeline', default_args=default_args, schedule_interval='@daily', catchup=False) as dag: 
+    streaming_task = PythonOperator(
+        task_id='stream_data_from_api',
+        python_callable= stream_data 
+        )
